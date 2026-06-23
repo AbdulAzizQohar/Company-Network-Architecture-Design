@@ -1,0 +1,893 @@
+1.	Network Design and Beautification (Penataan/dirapikan)
+Membuat desain jaringan dimana kita harus merapikan jalur/port port nya demi kemudahan set up di langkah selanjutnya
+
+2.	Basic Settings to all devices + SSH + Standard ACL for SSH
+Linked to number 10 Technical Requirements
+
+In this step we only allow the management network to remotely access the devices,
+With creating access control list a rule that only allow management network to manage the networking devices dimana hal ini menyebabkan any network yang mencoba masuk akan denied
+
+ [This program is Setup for Switch]
+en
+conf t
+hostname CORE-SW2          
+
+line console 0
+password cisco
+login
+logging synchronous
+exec-timeout 3 0
+exit
+
+enable password cisco
+banner motd &UNAUTHORIZED ACCESS!!!&
+no ip domain-lookup
+
+service password-encryption
+
+username cisco password cisco
+ip domain-name cisco.com
+
+crypto key generate rsa general-keys modulus 1024
+ip ssh version 2
+
+line vty 0 15
+login local
+transport input ssh
+exit
+
+access-list 1 permit 192.168.10.0 0.0.0.255
+access-list 1 deny any
+line vty 0 15
+access-class 1 in
+exit
+do wr
+
+Note: 
+•	Jangan lupa penamaannya sesuai dengan departemen masing masing
+•	Exec timeout disetting untuk otomatis keluar dari CLI jika tidak ada interaksi selama 3 menit
+•	Perintah line vty 0 15 pada perangkat Cisco digunakan untuk membuka dan mengatur konfigurasi 16 sesi Virtual Terminal (VTY) secara bersamaan (0 hingga 15). Ini memungkinkan akses remote jarak jauh ke perangkat jaringan (router atau switch) melalui SSH atau Telnet
+
+3.	VLAN ASsignment plus all access and trunk ports on L2 and L3 switches
+[Configuration for every department switch]
+interface range fa0/1-2
+switchport mode trunk
+exit 
+vlan 10
+name MGT
+vlan 20
+name LAN
+vlan 50
+name WLAN
+vlan 70
+name VOIP
+vlan 199
+name BLACKHOLE
+exit
+
+int range fa0/3-4
+switchport mode access
+switchport access vlan 20
+exit
+
+int range fa0/5-6
+switchport mode access
+switchport access vlan 70
+exit
+
+int fa0/7
+switchport mode access 
+switchport access vlan 50
+exit
+
+int range fa0/8-24, gig0/1-2
+switchport mode access 
+switchport access vlan 199
+shut
+exit
+do wr
+
+[Configuration for Server switch]
+PErhatikan kita hanya mensetting vlan server pada urutan 90
+
+interface range fa0/1-2, fa0/7
+switchport mode trunk
+exit
+ 
+vlan 10
+name MGT
+vlan 20
+name LAN
+vlan 50
+name WLAN
+vlan 70
+name VOIP
+vlan 90
+name INSIDE-SERVERS
+exit
+
+int range fa0/3-5
+switchport mode access
+switchport access vlan 90
+exit
+
+int fa0/6
+switchport mode access 
+switchport access vlan 50
+exit
+
+do wr
+
+[Configuration for Multi-layer switch] (1:24:10)
+disini kita tidak mengkonfigurasi blackhole ataupun port 1 & 2 (ISP) kita hanya mensetting mswitch untuk bisa terhubung dengan switch yang memiliki akses langsung ke tiap department
+
+int range gig1/0/3-8
+switchport mode trunk
+exit 
+
+vlan 10
+name MGT
+vlan 20
+name LAN
+vlan 50
+name WLAN
+vlan 70
+name VOIP
+vlan 90
+name INSIDE-SERVERS
+exit
+do wr
+
+[Cause there is some problem in VOIP Configuration we must Troubleshoot and Fix it]
+
+Perlu diingat ketika setting VLAN (Troubleshoot), VoiP itu bukan ke jalur data namun ke jalur VoiP sendiri
+
+int range fa0/5-6
+no switchport access vlan70
+switchport voice vlan 70
+ex
+do wr
+
+Buat yang lebih simpel kaya begini
+
+int range fa0/5-6
+no switchport access vlan 70
+switchport voice vlan 70
+ex
+do wr
+
+
+int range fa0/5-6
+no switchport access vlan 70
+switchport voice vlan 70
+ex
+do wr
+
+
+
+Fungsi blackhole apa? Blackhole itu dilakukan agar tidak ada open network selain yang disetting alasannya masih belum tau
+
+
+a.	Set Up Portfast & BPDUguard
+
+Ketika port terhubung ke device terkadang sering berwarna merah/kuning dan sangat lama untuk menjadi warna hijau. Maka kita perlu melakukan set up untuk mengatasi hal tersebut
+
+Kita melakukan konfigurasi di access port bukan trunk
+
+maka
+
+[ Konfigurasi untuk Server dimana jalur 1,2,7 itu trunk]
+
+int range fa0/3-6, fa0/8-24
+spanning-tree portfast
+spanning-tree bpduguard enable
+ex
+do wr
+
+[ Konfigurasi untuk Departemen Umum]
+int range fa0/3-24
+spanning-tree portfast
+spanning-tree BPDUguard enable
+ex
+do wr
+
+ [Konfigurasi untuk DMZ]
+int range fa0/1-24
+spanning-tree portfast
+spanning-tree BPDUguard enable
+ex
+do wr
+
+
+4.	Etherchannel
+Implement Link Aggregation Control Protocol (LACP) for EtherChannel configuration.
+
+EtherChannel adalah teknologi agregasi atau penggabungan beberapa koneksi kabel fisik (Ethernet) menjadi satu jalur logis tunggal antara perangkat jaringan (seperti switch, router, atau server).
+
+setting hanya bisa dilakukan dengan mode active-active atau active-passive
+
+[ Configuration for MultiSwitch 1]
+int range gig1/0/9-11
+channel-group 1 mode active
+ex
+interface port-channel 1
+switchport mode trunk
+ex
+do wr
+
+[ Configuration for MultiSwitch 2]
+int range gig1/0/9-11
+channel-group 1 mode passive
+ex
+interface port-channel 1
+switchport mode trunk
+ex
+do wr
+
+5.	Subnetting and IP addressing
+IP addressing
+
+memberikan alamat/lokasi IP ke setiap department
+memberikan alamat ip pada jalur FWL, MSWITCH, INTERNET CLOUD
+kita ingin menjadikan switch ini routable interface (no switchport)
+10.2.2.1 itu ditujukan pada jalur 10.2.2.0 (ditambah 1 tiap address bersangkutan)
+
+
+[CORE SW 1 (MLSW1) DARI FWL 1]
+IP ROUTING
+int gi1/0/1
+no switchport
+no shut
+ip add 10.2.2.1 255.255.255.252
+
+
+[CORE SW 1 (MLSW1) DARI FWL 2]
+IP ROUTING
+int gi1/0/2
+no switchport
+no shut
+ip add 10.2.2.9 255.255.255.252
+ex
+do wr
+
+
+[CORE SW 2 (MLSW2) DARI FWL 1]
+IP ROUTING
+int gi1/0/1
+no switchport
+no shut
+ip add 10.2.2.5 255.255.255.252
+
+
+############ CORE SW 2 (MLSW2) DARI FWL 2 ###########
+IP ROUTING
+int gi1/0/2
+no switchport
+no shut
+ip add 10.2.2.13 255.255.255.252
+
+
+
+Uncluster INTERNET CLOUD
+Configure IP ADDRESS ISP
+
+Setting melalui CONFIG -> INTERFACE -> MASUKKAN ALAMAT IP SESUAI JALUR
+
+Setting Router INTERNET CLOUD
+IP = 8.0.0.1
+Mask = 255.0.0.0
+
+USA INTERNET USER
+
+Dekstop-> IP Config -> IPv4 8.0.0.10 -> 255.0.0.0 -> 8.0.0.1 -> 8.0.0.1
+
+
+CHINA INTERNET USER
+
+Dekstop-> IP Config -> IPv4 8.0.0.20 -> 255.0.0.0 -> 8.0.0.1 -> 8.0.0.1
+
+6.	HSRP and Inter-VLAN routing on the Layer 3 switches plus IP DHCP helper addresses
+HSRP (Hot Standby Router Protocol) adalah protokol jaringan milik Cisco 
+yang berfungsi untuk mencegah jaringan terputus (down). 
+HSRP membuat beberapa router bekerja sama membentuk 
+satu default gateway virtual.
+
+HSRP menggunakan satu Alamat IP Virtual (VIP) yang dimasukkan sebagai 
+gateway di komputer klien.
+
+
+Aktif Direktori DHCP Server untuk mendapat IP address
+Semua IP address dari setiap departemen harus ke DHCP server kecuali IP Phone (VoiP)
+IP phone berasal dari router Cisco Voice Gateaway (VLAN 70)
+
+Untuk management dan LAN akan terhubung ke First Switch
+Second Switch untuk active switch atau active router (Untuk WLAN & Inside Servers)
+
+DHCP 10.11.11.36
+DNS 10.11.11.37
+RADIUS 10.11.11.38
+
+[Internal Routing]
+
+Mengkonfigurasi HSRP melalui Internal Routing Entries
+
+Int vlan 10 
+no shut
+ip add 192.168.10.3 255.255.255.0
+standby 10 ip 192.168.10.1
+ip helper-address 10.11.11.38
+exit
+
+int vlan 20
+no shut
+ip add 172.16.0.3 255.255.0.0
+standby 20 ip 172.16.0.1
+ip helper-address 10.11.11.38
+exit
+
+
+int vlan 50
+no shut
+ip add 10.20.0.2 255.255.0.0
+standby 50 ip 10.20.0.1
+ip helper-address 10.11.11.38
+exit
+
+int vlan 90
+no shut
+ip add 10.11.11.34 255.255.255.224
+standby 90 ip 10.11.11.33
+exit
+
+do wr
+
+do sh start
+
+2:10:31
+
+
+CORE SW1
+
+!
+interface Vlan10
+ ip address 192.168.10.3 255.255.255.0
+ ip helper-address 10.11.11.38
+ standby 10 ip 192.168.10.1
+!
+interface Vlan20
+ ip address 172.16.0.3 255.255.0.0
+ ip helper-address 10.11.11.38
+ standby 20 ip 172.16.0.1
+!
+interface Vlan50
+ ip address 10.20.0.2 255.255.0.0
+ ip helper-address 10.11.11.38
+ standby 50 ip 10.20.0.1
+!
+interface Vlan90
+ ip address 10.11.11.34 255.255.255.224
+ standby 90 ip 10.11.11.33
+!
+
+
+
+CORE SW2
+
+!
+interface Vlan10
+ ip address 192.168.10.2 255.255.255.0
+ ip helper-address 10.11.11.38
+ standby 10 ip 192.168.10.1
+!
+interface Vlan20
+ ip address 172.16.0.2 255.255.0.0
+ ip helper-address 10.11.11.38
+ standby 20 ip 172.16.0.1
+!
+interface Vlan50
+ ip address 10.20.0.3 255.255.0.0
+ ip helper-address 10.11.11.38
+ standby 50 ip 10.20.0.1
+!
+interface Vlan90
+ ip address 10.11.11.35 255.255.255.224
+ standby 90 ip 10.11.11.33
+!
+
+
+<comment> kalo mau ngecek 
+Show standby brief
+7.	Static IP Address to DMZ/Server farm devices.
+Static IP Address to DMZ/Server farm devices.
+
+Static IP address to servers
+
+Untuk setting IP address inside servers masuk ke dekstop lalu ke IP address dan isi
+
+IP Address DHCP = 10.11.11.38
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.33
+DNS Server = 10.11.11.37
+
+IP Address DNS = 10.11.11.37
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.33
+DNS Server = 10.11.11.37
+
+IP Address Radius = 10.11.11.36
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.33
+DNS Server = 10.11.11.37
+
+
+
+=============IP Address DMZ/ Server Farm===========
+IP Address FTP = 10.11.11.10
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.1
+DNS Server = 10.11.11.37
+
+IP Address WEB = 10.11.11.11
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.1
+DNS Server = 10.11.11.37
+
+IP Address EMAIL = 10.11.11.12
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.33
+DNS Server = 10.11.11.37
+
+IP Address APP = 10.11.11.13
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.1
+DNS Server = 10.11.11.37
+
+IP Address NAS STORAGE = 10.11.11.14
+Subnet Mask = 255.255.255.224
+Default GAteaway = 10.11.11.1
+DNS Server = 10.11.11.37
+
+
+
+8.	DHCP server device configuration
+DHCP server device config
+
+pertama ke DHCP Server device
+bagian Services
+lalu ke DHCP
+Stat IP address & Subnet Mask pokonya semua angka ubah ke 0
+Save
+
+service => On
+
+Pool name => MGT-Pool
+Default gateaway = 192.168.10.1
+DNS Servers = 10.11.11.37
+Stat IP = 192.168.10.11
+S MASK = 255.255.255.0
+User = 200
+(Tambahkan)
+
+Pool name => LAN-Pool
+Default gateaway = 172.16.0.1
+DNS Servers = 10.11.11.37
+Stat IP = 172.16.0.11
+S MASK = 255.255.0.0
+User = 1000
+(Tambahkan)
+
+Pool name = WLAN-Pool
+Default gateaway = 10.20.0.1
+DNS Servers = 10.11.11.37
+Stat IP = 10.20.0.11
+S MASK = 255.255.0.0
+User = 1000
+WLC = 10.20.0.10
+(Tambahkan)
+
+
+
+9.	OSPF on the firewall, routers, and switches.
+OSPF (Open Shortest Path First) berfungsi sebagai protokol routing dinamis. Ia secara otomatis menemukan jalur terpendek dan paling efisien untuk mengirimkan paket data lintas jaringan yang kompleks.
+
+#bentar ada error VLAN 1
+[Konfigurasi OSPF pada Multilayer switchs]
+menit ke = 2:24:00
+cek dulu jaringan yg udah konek
+
+============== CORE-SW1===================
+router ospf 35
+router-id 1.1.1.1
+network 10.2.2.0 0.0.0.3 area 0
+network 10.2.2.8 0.0.0.3 area 0
+network 192.168.10.0 0.0.0.255 area 0
+network 172.16.0.0 0.0.255.255 area 0
+network 10.20.0.0 0.0.255.255 area 0
+network 10.11.11.32 0.0.0.31 area 0
+ex
+
+do wr
+
+do sh start
+
+============== CORE-SW2===================
+lalu copy OSPF Entries nya buat di paste ke switch satunya
+
+2:28:00
+
+hasilnya nanti kek gini
+
+!
+router ospf 35
+ router-id 1.1.2.2
+ network 10.2.2.4 0.0.0.3 area 0
+ network 10.2.2.12 0.0.0.3 area 0
+ network 192.168.10.0 0.0.0.255 area 0
+ network 172.16.0.0 0.0.255.255 area 0
+ network 10.20.0.0 0.0.255.255 area 0
+ network 10.11.11.32 0.0.0.31 area 0
+!
+
+[Konfigurasi OSPF pada Router (ISP)]        
+#Router 1 SEACOM#
+masuk CLI
+
+router ospf 35
+router-id 1.1.3.3
+network 105.100.50.0 0.0.0.3 area 0
+network 105.100.50.4 0.0.0.3 area 0
+network 20.20.20.0 0.0.0.3 area 0
+ex
+do wr
+
+#Router SAFARICOM#
+router ospf 35
+router-id 1.1.4.4
+network 30.30.30.0 0.0.0.3 area 0
+network 197.200.100.0 0.0.0.3 area 0
+network 197.200.100.4 0.0.0.3 area 0
+ex
+do wr
+
+#Router Cloud#
+router ospf 35
+router-id 1.1.5.5
+network 8.0.0.0 0.255.255.255 area 0
+network 20.20.20.0 0.0.0.3 area 0
+network 30.30.30.0 0.0.0.3 area 0
+ex
+do wr
+
+
+bisa mengklusterkan lagi internet/cloud nya
+
+lalu check ip neighbor
+
+show ip ospf neighbor
+
+[Konfigurasi OSPF pada Firewall]
+untuk firewall konfigurasi menyusul
+
+
+10.	Firewall interface security zone and levels. 
+Firewall Interface security zones and level
+menit ke 2:34:14
+
+Tahapan paling penting dalam seluruh rancangan yang menentukan keberhasilan atau tidak
+
+dalam firewall ada daerah dalam zona luar zona dan DMZ
+
+========Firewall 1==================
+
+cli
+##passwordnya kosong masih belum disetting
+##enter aja
+config t
+hostname FWL1
+int gig1/3
+no shut
+ip add 10.2.2.2 255.255.255.252
+nameif INSIDE1
+security-level 100
+ex
+
+
+int gig1/4
+no shut
+ip add 10.2.2.6 255.255.255.252
+nameif INSIDE2
+security-level 100
+ex
+
+
+int gig1/5
+no shut
+ip add 10.11.11.1 255.255.255.224
+nameif DMZ
+security-level 70
+ex
+
+
+int gig1/1
+no shut
+ip add 105.100.50.2 255.255.255.252
+nameif OUTSIDE1
+security-level 0
+ex
+
+
+int gig1/2
+no shut
+ip add 197.200.100.2 255.255.255.252
+nameif OUTSIDE2
+security-level 0
+ex
+wr mem
+
+
+
+=========Firewall 2=================
+
+cli
+Conf t
+hostname FWL2
+int gig1/3
+no shut
+ip add 10.2.2.10 255.255.255.252
+nameif INSIDE1
+security-level 100
+ex
+
+
+int gig1/4
+no shut
+ip add 10.2.2.14 255.255.255.252
+nameif INSIDE2
+security-level 100
+ex
+
+int gig1/1
+no shut
+ip add 105.100.50.6 255.255.255.252
+nameif OUTSIDE1
+security-level 0
+ex
+
+int gig1/2
+no shut
+ip add 197.200.100.6 255.255.255.252
+nameif OUTSIDE2
+security-level 0
+ex
+
+wr mem
+
+
+
+Firewall routing-ospf + static routes
+
+
+========FIREWALL1===========
+config t
+route ?
+
+route OUTSIDE1 0.0.0.0 0.0.0.0 105.100.50.1
+
+route OUTSIDE2 0.0.0.0 0.0.0.0 197.100.50.1
+
+router ospf 35
+
+router-id 1.1.8.8
+
+network 105.100.50.0 255.255.255.252 area 0
+
+network 197.200.100.0 255.255.255.252 area 0
+
+network 10.2.2.0 255.255.255.252 area 0
+
+network 10.2.2.4 255.255.255.252 area 0
+
+
+=========FIREWALL2=================
+route OUTSIDE2 0.0.0.0 0.0.0.0 197.200.100.5
+
+route OUTSIDE1 0.0.0.0 0.0.0.0 105.100.50.5
+router ospf 35
+router-id 1.1.9.9
+network 197.200.100.4 255.255.255.252 area 0
+network 105.100.50.4 255.255.255.252 area 0
+network 10.2.2.8 255.255.255.252 area 0
+network 10.2.2.12 255.255.255.252 area 0
+
+ex  
+wr mem
+
+11.	Firewall inspection policy configuration.    
+Dalam arsitektur keamanan jaringan, NAT (Network Address Translation) yang dikonfigurasi di dalam Firewall Inspection Policy adalah mekanisme yang bertugas untuk mengubah informasi alamat IP (dan sering kali nomor port) pada header paket data saat paket tersebut melewati firewall, sambil tetap tunduk pada aturan inspeksi keamanan yang ketat
+
+=========Firewall1===================
+sebelum konfigurasi inspection policy kita harus konfig NAT dulu
+
+######## Setting LAN #####
+object network INSIDE1-OUTSIDE1
+subnet 172.16.0.0 255.255.0.0
+nat (INSIDE1,OUTSIDE1) dynamic interface
+ex
+
+conf t
+object network INSIDE2-OUTSIDE1
+subnet 172.16.0.0 255.255.0.0
+nat (INSIDE2,OUTSIDE1) dynamic interface
+ex
+
+###### WLAN ######
+conf t
+object network INSIDEw1-OUTSIDEw1
+subnet 10.20.0.0 255.255.0.0
+nat (INSIDE1,OUTSIDE1) dynamic interface
+
+
+object network INSIDEw2-OUTSIDEw1
+subnet 10.20.0.0 255.255.0.0
+nat (INSIDE2,OUTSIDE1) dynamic interface
+ex
+
+###############################
+object network INSIDE1-OUTSIDE2
+subnet 172.16.0.0 255.255.0.0
+nat (INSIDE1,OUTSIDE2) dynamic interface
+
+
+object network INSIDE2-OUTSIDE2
+subnet 172.16.0.0 255.255.0.0
+nat (INSIDE2,OUTSIDE2) dynamic interface
+
+
+
+object network INSIDEw1-OUTSIDEw2
+subnet 10.20.0.0 255.255.0.0
+nat (INSIDE1,OUTSIDE2) dynamic interface
+
+
+object network INSIDEw2-OUTSIDEw2
+subnet 10.20.0.0 255.255.0.0
+nat (INSIDE2,OUTSIDE2) dynamic interface
+
+
+object network DMZ-OUTSIDE1
+subnet 10.11.11.0 255.255.255.224
+nat (DMZ,OUTSIDE1) dynamic interface
+
+object  network DMZ-OUTSIDE2
+subnet 10.11.11.0 255.255.255.224
+nat (DMZ,OUTSIDE2) dynamic interface
+
+wr mem
+ex
+conf t
+show start
+
+
+==============FWL 2=========
+Hasilnya kek gini
+!
+object network DMZ-OUTSIDE1
+ subnet 10.11.11.0 255.255.255.224
+ nat (DMZ,OUTSIDE1) dynamic interface
+object network DMZ-OUTSIDE2
+ subnet 10.11.11.0 255.255.255.224
+ nat (DMZ,OUTSIDE2) dynamic interface
+object network INSIDE1-OUTSIDE1
+ subnet 172.16.0.0 255.255.0.0
+ nat (INSIDE1,OUTSIDE1) dynamic interface
+object network INSIDE1-OUTSIDE2
+ subnet 172.16.0.0 255.255.0.0
+ nat (INSIDE1,OUTSIDE2) dynamic interface
+object network INSIDE2-OUTSIDE1
+ subnet 172.16.0.0 255.255.0.0
+ nat (INSIDE2,OUTSIDE1) dynamic interface
+object network INSIDE2-OUTSIDE2
+ subnet 172.16.0.0 255.255.0.0
+ nat (INSIDE2,OUTSIDE2) dynamic interface
+object network INSIDEw1-OUTSIDEw1
+ subnet 10.20.0.0 255.255.0.0
+ nat (INSIDE1,OUTSIDE1) dynamic interface
+object network INSIDEw1-OUTSIDEw2
+ subnet 10.20.0.0 255.255.0.0
+ nat (INSIDE1,OUTSIDE2) dynamic interface
+object network INSIDEw2-OUTSIDEw1
+ subnet 10.20.0.0 255.255.0.0
+ nat (INSIDE2,OUTSIDE1) dynamic interface
+object network INSIDEw2-OUTSIDEw2
+ subnet 10.20.0.0 255.255.0.0
+ nat (INSIDE2,OUTSIDE2) dynamic interface
+!
+Wr mem
+Ex
+Conf t
+
+[copy nat entriesnya
+hapus dmz nya
+paste ke firewall ke 2]
+
+===================FIREWALL1=====================
+kita akan membuat inspection policy untuk allow services and application
+1.	ICMP = Ping
+2.	WEB = HTTP
+3.	DNS
+balik lagi ke firewall 1 untuk ngebuat inspection policies
+
+access-list RES extended permit icmp any any
+access-list RES extended permit tcp any any eq 80
+access-list RES extended permit tcp any any eq 53
+access-list RES extended permit udp any any eq 53
+access-group RES in interface DMZ
+access-group RES in interface OUTSIDE1
+access-group RES in interface OUTSIDE2
+
+do wr
+wr mem
+show start
+
+======================FIREWALL2===================
+[Lalu kita copy Inspection Policy lalu paste ke FWL2]
+
+3:13:00
+
+nanti akan jadi seperti ini
+!
+access-list RES extended permit icmp any any
+access-list RES extended permit tcp any any eq 80
+access-list RES extended permit tcp any any eq 53
+access-list RES extended permit udp any any eq 53
+!
+!
+access-group RES in interface OUTSIDE1
+access-group RES in interface OUTSIDE2
+!
+
+
+!
+access-list RES extended permit icmp any any
+access-list RES extended permit tcp any any eq 80
+access-list RES extended permit tcp any any eq 53
+access-list RES extended permit udp any any eq 53
+!
+!
+access-group RES in interface OUTSIDE1
+access-group RES in interface OUTSIDE2
+!
+
+WR MEM
+
+
+(SAMPAI SINI, KERJANYA DARI SINI)
+
+
+Selanjutnya kita akan mengetest hasil setting DHCP kita
+
+kita masuk ke PC acak lalu masuk ke dekstop lalu ke ip config
+caranya cuma pindah pindahin bullet static ke DHCP sampe DHCPnya nunjukkin alamat 
+klo masih belum nunjukkin alamat maka restart softwarenya
+
+Pengujian dilakukan dengan mengirim paket 
+
+lalu PING 8.0.0.20
+
+indikator berhasil jika menunjukkan balasan/reply
+
+coba ping ke DMZ PING 10.11.11.11
+
+
+Masuk ke dekstop > command prompt
+PING 8.0.0.0
+
+
+klo berhasil semua kita akan setting VOIP
+
+Setting wireless lan controller
+
+
+
+tambahkan PC baru dan setting subnet dan ip address
+NET-SEC-PC
